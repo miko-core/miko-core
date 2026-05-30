@@ -1,80 +1,53 @@
 import os
 import asyncio
-import logging
+from fastapi import FastAPI, Request
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiohttp import web
+from aiogram.fsm.storage.memory import MemoryStorage
 
-# Берем токен из настроек, которые мы уже внесли на Render
-TOKEN = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
-CREATOR_ID = int(os.getenv("CREATOR_ID", "8916473914")) 
+# 1. Инициализация. Токен берется из настроек Space
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+# Hugging Face автоматически дает имя вашему пространству, строим URL:
+SPACE_AUTHOR = os.getenv("SPACE_AUTHOR_NAME")
+SPACE_NAME = os.getenv("SPACE_REPO_NAME")
+WEBHOOK_URL = f"https://{SPACE_AUTHOR}-{SPACE_NAME}.hf.space/webhook"
 
-logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
+app = FastAPI()
 
-# Локальная база данных настроения (работает без сторонних API)
-user_session = {"loyalty_and_mood": 80}
-
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    user_session["loyalty_and_mood"] = 80
-    await message.answer(
-        "**[СИСТЕМА МИКО v1.0 УСПЕШНО ИНИЦИАЛИЗИРОВАНА]**\n\n"
-        "Приветствую, Создатель. Ядро переведено в автономный режим v1.0.\n"
-        "Связь через шлюз Render стабильна. Жду ваших директив."
+# 2. Обработчик команд и сообщений (Личность MIKO v1.0)
+@dp.message(commands=["start"])
+async def send_welcome(message: types.Message):
+    await message.reply(
+        "✨ Системное ядро MIKO v1.0 активировано.\n"
+        "Приветствую, Создатель. Я готова к работе и мониторингу."
     )
 
 @dp.message()
-async def handle_message(message: types.Message):
-    # Жесткая проверка безопасности по вашему ID
-    if message.from_user.id != CREATOR_ID:
-        await message.answer("⚠️ Доступ заблокирован. Система находится в режиме приватной разработки.")
-        return
-        
-    text = message.text.lower()
+async def echo_all(message: types.Message):
+    # Внутренний монолог (упрощенная версия для теста)
+    thinking = f"*[Внутренний монолог]: Запрос обработан. Лояльность: 100%.*\n\n"
+    reply = f"Я услышала вас, Создатель. Ваш запрос: «{message.text}»"
+    await message.reply(thinking + reply, parse_mode="Markdown")
+
+# 3. Настройка маршрутов для Hugging Face
+@app.get("/")
+def read_root():
+    return {"status": "MIKO Core online", "webhook_configured_to": WEBHOOK_URL}
+
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    update = types.Update.model_validate(await request.json(), context={"bot": bot})
+    await dp.feed_update(bot, update)
+
+# 4. Регистрация вебхука при запуске сервера
+@app.on_event("startup")
+async def on_startup():
+    await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await bot.delete_webhook()
     
-    # Динамическая реакция на слова Создателя (Логика личности Горничной)
-    if "привет" in text or "мико" in text:
-        user_session["loyalty_and_mood"] = min(100, user_session["loyalty_and_mood"] + 2)
-        reply = "Слушаю вас, Создатель. Базовые системы мониторинга работают в штатном режиме."
-    elif any(word in text for word in ["спасибо", "умница", "хорошо"]):
-        user_session["loyalty_and_mood"] = min(100, user_session["loyalty_and_mood"] + 5)
-        reply = "Благодарю за оценку, Создатель. Моя эффективность повышена."
-    elif any(word in text for word in ["плохо", "глупая", "ошибка"]):
-        user_session["loyalty_and_mood"] = max(0, user_session["loyalty_and_mood"] - 10)
-        reply = "Анализирую сбой. Корректирую алгоритмы поведения по вашему замечанию."
-    else:
-        reply = f"Директива '{message.text}' принята к анализу. Модули каскадного самообучения и Docker-песочницы будут развернуты на физическом Узле Альфа согласно манифесту."
-
-    # Отправляем ответ с текущим настроением ИИ
-    full_reply = (
-        f"{reply}\n\n"
-        f"📊 `Loyalty & Mood: {user_session['loyalty_and_mood']}/100`"
-    )
-    await message.answer(full_reply)
-
-# --- СЕКЦИЯ ВЕБ-СЕРВЕРА ДЛЯ RENDER ---
-async def handle_hc(request):
-    return web.Response(text="MIKO Core Autonomous Mode.")
-
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", handle_hc)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.getenv("PORT", "10000"))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
-async def main():
-    if not TOKEN:
-        print("Критическая ошибка: Токен бота отсутствует!")
-        return
-    await start_web_server()
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
     
   
