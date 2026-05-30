@@ -1,41 +1,57 @@
 import os
 import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from openai import AsyncOpenAI
+from aiohttp import web
 
-CREATOR_ID = 8916473914  
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+CREATOR_ID = int(os.getenv("CREATOR_ID", "123456789")) 
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-if not BOT_TOKEN:
-    raise ValueError("Критическая ошибка: BOT_TOKEN не найден в настройках сервера!")
-
-bot = Bot(token=BOT_TOKEN)
+logging.basicConfig(level=logging.INFO)
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
+ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+
+user_session = {"loyalty_and_mood": 80, "history": []}
+
+MIKO_SYSTEM_PROMPT = "Ты — MIKO (v1.0), автономная ИИ-система управления. Твой уровень настроения: {mood}/100."
+
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    await message.answer(
+        "**[СИСТЕМА МИКО v1.0 ИНИЦИАЛИЗИРОВАНА]**\n\n"
+        "Приветствую, Создатель. Связь через веб-сервер Render успешно установлена. Я готова."
+    )
 
 @dp.message()
-async def handle_miko_mind(message: types.Message):
-    user_id = message.from_user.id
-    
-    if user_id != CREATOR_ID:
-        return 
+async def handle_message(message: types.Message):
+    if message.from_user.id != CREATOR_ID:
+        await message.answer("⚠️ Доступ заблокирован. Режим приватной разработки.")
+        return
+    await message.answer(f"Принято, Создатель. Система функционирует нормально. Настроение: {user_session['loyalty_and_mood']}/100.")
 
-    user_text = message.text.strip()
-    print(f"[Внутренний монолог Мико]: Создатель написал: '{user_text}'. Анализирую контекст...")
-    
-    response = (
-        f"🤖 *Мико v1.0 успешно активирована.*\n\n"
-        f"Приветствую, Создатель. Мой облачный эмбрион сделал первый вдох и теперь работает 24/7.\n\n"
-        f"Я зафиксировала Ваш цифровой паспорт (`{CREATOR_ID}`) и заблокировала периметр от посторонних. "
-        f"Связь полностью защищена. Жду Ваших указаний по запуску Недели 2 и подключению каскадной памяти!"
-    )
-    
-    await message.answer(response, parse_mode="Markdown")
+async def handle_hc(request):
+    return web.Response(text="MIKO Core is running perfectly.")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_hc)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", "10000"))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
 
 async def main():
-    print("🚀 Мико успешно сделала первый вдох и слушает server...")
+    if not TOKEN:
+        return
+    await start_web_server()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
   
